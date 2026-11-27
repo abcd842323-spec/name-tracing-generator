@@ -120,6 +120,16 @@
     background:var(--panel);color:var(--ink);font-size:1.1rem;cursor:pointer;
   }
   .pager span{font-weight:700;font-size:.9rem;color:var(--ink-soft)}
+  .btn-listen{
+    display:inline-flex;align-items:center;gap:8px;
+    background:var(--teal);color:#fff;border:none;border-radius:999px;
+    padding:10px 18px;font-weight:800;cursor:pointer;min-height:44px;
+    font-family:"Baloo 2","Noto Sans Devanagari",sans-serif;font-size:1rem;
+    box-shadow:var(--shadow);
+  }
+  .btn-listen svg{width:20px;height:20px;flex:none}
+  .btn-listen:active{transform:scale(.97)}
+  @media (prefers-color-scheme: dark){.btn-listen{color:#052e2c}}
   .sheet-scroll{overflow:hidden}
   .sheet{
     background:#ffffff;color:#263238;
@@ -184,7 +194,7 @@
         <input type="text" id="nameEn" value="Aarav" maxlength="24" autocomplete="off" />
         <label for="nameHi" style="margin-top:10px">Child's name (Hindi · हिन्दी)</label>
         <input type="text" id="nameHi" value="आरव" maxlength="24" autocomplete="off" lang="hi" />
-        <div class="hint">Hindi name sirf Hindi ya “Both” mode me dikhega.</div>
+        <div class="hint">English naam badalne par Hindi naam khud bhar jata hai — chaaho to khud bhi badal sakte ho, tumhara likha naam overwrite nahi hoga. Hindi naam sirf Hindi ya “Both” mode me dikhega.</div>
       </div>
 
       <div class="field" id="classFields" hidden>
@@ -250,6 +260,10 @@ Kabir</textarea>
     <section aria-label="Worksheet preview">
       <div class="preview-head">
         <h2>Preview · A4 sheet</h2>
+        <button type="button" class="btn-listen" id="btnListen" aria-label="Naam suno — naam bol kar sunao">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 9v6h4l5 5V4L7 9H3z"/><path d="M16.5 8.6a4.5 4.5 0 0 1 0 6.8l-1-1.2a3.2 3.2 0 0 0 0-4.4l1-1.2z"/><path d="M19 6a8 8 0 0 1 0 12l-1-1.2a6.6 6.6 0 0 0 0-9.6L19 6z"/></svg>
+          Naam Suno · नाम सुनो
+        </button>
         <div class="pager" id="pager" hidden>
           <button type="button" id="pgPrev" aria-label="Previous page">‹</button>
           <span id="pgLabel">Page 1 of 1</span>
@@ -294,6 +308,76 @@ Kabir</textarea>
     return [{ en:nameEn.value.trim(), hi:nameHi.value.trim() }];
   }
 
+  /* ---------- Roman → Devanagari transliteration ----------
+     Greedy longest-match over consonant + vowel-sign pairs, so common
+     names come out right: Ram → राम, Aarav → आरव, Kabir → कबीर.
+     A word-final "a" after a consonant takes the long sign (Meera →
+     मीरा, Priya → प्रिया); a consonant with no vowel after it joins the
+     next one with a halant, except at the end of a word (राम, not राम्). */
+  var CONS = { chh:"छ", kh:"ख", gh:"घ", ng:"ङ", ch:"च", jh:"झ", th:"थ", dh:"ध",
+    ph:"फ", bh:"भ", sh:"श", k:"क", g:"ग", j:"ज", t:"त", d:"द", n:"न", p:"प",
+    f:"फ", b:"ब", m:"म", y:"य", r:"र", l:"ल", v:"व", w:"व", s:"स", h:"ह",
+    c:"क", q:"क", z:"ज़", x:"क्स" };
+  var CONS_KEYS = ["chh","kh","gh","ng","ch","jh","th","dh","ph","bh","sh",
+    "k","g","j","t","d","n","p","f","b","m","y","r","l","v","w","s","h","c","q","z","x"];
+  var SIGN = { a:"", aa:"ा", i:"ि", ee:"ी", ii:"ी", u:"ु", oo:"ू", uu:"ू", e:"े", ai:"ै", o:"ो", au:"ौ" };
+  var FULL = { a:"अ", aa:"आ", i:"इ", ee:"ई", ii:"ई", u:"उ", oo:"ऊ", uu:"ऊ", e:"ए", ai:"ऐ", o:"ओ", au:"औ" };
+  var VOW_KEYS = ["aa","ai","au","ee","ii","oo","uu","a","i","u","e","o"];
+
+  function matchKey(w, i, keys){
+    for(var k=0;k<keys.length;k++){
+      if(w.substr(i, keys[k].length)===keys[k]) return keys[k];
+    }
+    return null;
+  }
+  function transWord(w){
+    var out="", i=0, sawLong=false;
+    while(i<w.length){
+      var c = matchKey(w, i, CONS_KEYS);
+      if(c){
+        var v = matchKey(w, i+c.length, VOW_KEYS);
+        if(v){
+          var sign = SIGN[v];
+          if(v==="a"){
+            if(i+c.length+1===w.length) sign = "ा"; /* word-final a is long: मीरा, प्रिया */
+            else if(!sawLong && i+c.length+2===w.length && matchKey(w, i+c.length+1, CONS_KEYS)) sign = "ा"; /* राम, श्याम — but आरव stays short after its long आ */
+          }
+          if(v!=="a" && v!=="i" && v!=="u") sawLong = true;
+          out += CONS[c] + sign;
+          i += c.length + v.length;
+        } else {
+          out += CONS[c] + (i+c.length>=w.length ? "" : "्");
+          i += c.length;
+        }
+      } else {
+        var v2 = matchKey(w, i, VOW_KEYS);
+        if(v2){
+          if(v2!=="a" && v2!=="i" && v2!=="u") sawLong = true;
+          out += FULL[v2]; i += v2.length;
+        }
+        else { out += w[i]; i++; }
+      }
+    }
+    return out;
+  }
+  function transliterate(en){
+    return en.toLowerCase().split(/\s+/).filter(Boolean).map(transWord).join(" ");
+  }
+
+  /* Auto-fill the Hindi field from the English name — but only while the
+     Hindi field is empty or still holds the untouched default / the last
+     auto-filled value. A name the parent typed themselves is never
+     overwritten; clearing the Hindi field hands it back to auto-fill. */
+  var lastAuto = "आरव"; /* matches the field's starting value */
+  function autoHindi(){
+    var cur = nameHi.value.trim();
+    if(cur==="" || cur===lastAuto){
+      var t = transliterate(nameEn.value.trim());
+      nameHi.value = t;
+      lastAuto = t;
+    }
+  }
+
   /* One tracing row as inline SVG: dotted-outline text on ruled guides.
      Dots come from a dashed stroke with round caps — works for Latin and
      Devanagari alike, no special tracing font needed. */
@@ -316,7 +400,7 @@ Kabir</textarea>
       + '<div class="guides"><i class="top"></i><i class="mid"></i><i class="base"></i></div>'
       + (opts.kind==="trace" ? '<span class="start-dot"></span>' : '')
       + '<svg viewBox="0 0 1000 150" preserveAspectRatio="xMinYMid meet" aria-hidden="true">'
-      + '<text x="16" y="110" font-family="'+fontFam+'" font-weight="700" font-size="'+size+'" letter-spacing="'+ls+'" fill="'+fill+'" stroke="'+stroke+'" stroke-width="'+(size*0.045)+'" stroke-dasharray="'+dash+'" stroke-linecap="round" stroke-linejoin="round">'+esc(text)+'</text>'
+      + '<text x="16" y="110" font-family="'+fontFam+'" font-weight="700" font-size="'+size+'" letter-spacing="'+ls+'" fill="'+fill+'" stroke="'+stroke+'" stroke-width="'+(size*(opts.kind==="model"?0.045:0.06))+'" stroke-dasharray="'+dash+'" stroke-linecap="round" stroke-linejoin="round">'+esc(text)+'</text>'
       + '</svg></div>';
   }
 
@@ -348,8 +432,10 @@ Kabir</textarea>
       html += '<div class="script-block"><div class="model-label">'+esc(s.label)+'</div><div class="rows">';
       if(optModel.checked) html += rowSVG(s.t,{kind:"model",size:size});
       for(var r=0;r<rows;r++){
-        var alpha = 0.95 - (r * (0.55/Math.max(1,rows-1||1)));
-        html += rowSVG(s.t,{kind:"trace",size:size,alpha:Math.max(0.35,alpha).toFixed(2)});
+        /* Gentle fade with a high floor (0.62): even the last dotted row
+           stays dark enough to see and trace, Hindi rows included. */
+        var alpha = Math.max(0.62, 0.98 - r*0.13);
+        html += rowSVG(s.t,{kind:"trace",size:size,alpha:alpha.toFixed(2)});
       }
       if(optBlank.checked){ html += blankRow(size); if(scripts.length===1) html += blankRow(size); }
       html += '</div></div>';
@@ -401,10 +487,56 @@ Kabir</textarea>
     render();
   });
 
-  [nameEn,nameHi,classList].forEach(function(el){ el.addEventListener("input", render); });
+  nameEn.addEventListener("input", function(){ autoHindi(); render(); });
+  nameHi.addEventListener("input", render);
+  classList.addEventListener("input", render);
   [rowCount,letterSize,optModel,optBlank,optDate].forEach(function(el){ el.addEventListener("change", render); });
   $("pgPrev").addEventListener("click", function(){ state.page--; render(); });
   $("pgNext").addEventListener("click", function(){ state.page++; render(); });
+
+  /* ---------- Naam Suno: speak the name aloud ----------
+     Uses the device's own speech synthesis. English name in an English
+     voice, Hindi name in a Hindi (hi-IN) voice, so the name can be
+     confirmed by ear without looking at the sheet. */
+  if("speechSynthesis" in window){
+    window.speechSynthesis.getVoices();
+    window.speechSynthesis.onvoiceschanged = function(){ window.speechSynthesis.getVoices(); };
+  }
+  function speakName(){
+    if(!("speechSynthesis" in window)){
+      status.textContent = "Is device par awaaz (speech) uplabdh nahi hai.";
+      return;
+    }
+    var list = names();
+    var item = list[state.page] || list[0] || {en:"", hi:""};
+    var en = item.en, hi = item.hi;
+    if(!hi && en) hi = transliterate(en); /* class list / cleared Hindi field */
+    var voices = window.speechSynthesis.getVoices();
+    function pick(prefix){
+      for(var i=0;i<voices.length;i++){
+        if((voices[i].lang||"").toLowerCase().indexOf(prefix)===0) return voices[i];
+      }
+      return null;
+    }
+    var utts = [];
+    if((state.script==="en" || state.script==="both") && en){
+      var uEn = new SpeechSynthesisUtterance(en);
+      uEn.lang = "en-IN"; uEn.rate = 0.9;
+      var vEn = pick("en"); if(vEn) uEn.voice = vEn;
+      utts.push(uEn);
+    }
+    if((state.script==="hi" || state.script==="both") && hi){
+      var uHi = new SpeechSynthesisUtterance(hi);
+      uHi.lang = "hi-IN"; uHi.rate = 0.9;
+      var vHi = pick("hi"); if(vHi) uHi.voice = vHi;
+      utts.push(uHi);
+    }
+    if(!utts.length){ status.textContent = "Pehle naam likho, phir Naam Suno dabao."; return; }
+    window.speechSynthesis.cancel();
+    utts.forEach(function(u){ window.speechSynthesis.speak(u); });
+    status.textContent = "Naam suna rahe hain…";
+  }
+  $("btnListen").addEventListener("click", speakName);
 
   /* ---------- export ---------- */
   function setBusy(btn, busy, label){
